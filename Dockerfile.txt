@@ -1,0 +1,121 @@
+# We take as a basis a ready-made image of chromium from selenoid (the version can be presented with a specific or latest)
+# ======================================================================
+FROM selenoid/chrome:110.0
+USER root
+
+# Specify arguments for specificity
+# ======================================================================
+ARG CERT_FILE_NAME=******.pfx
+ARG CERT_USER_NAME=******.cer
+ARG CERT_ROOT_NAME=root.cer
+ARG CERT_FILE_NAME_PASSWORD=******
+ARG USER_NAME=selenium
+ARG CSP_LICENSE_KEY=40400-00005-27345-00AYR-*****
+ARG HDIMAGE_STORE_NAME=te-01636.000
+
+# Here are the distributions of Crypto-Pro + Cades plugin + certificates (important!!! prepare *pfx format for writing the entire chain with PK)
+# When the certificate becomes expired, you will need to rebuild container and change the certificates themselves in /tmp/cert in the building directory
+# also do not forget to change: CERT_FILE_NAME_PASSWORD, HDIMAGE_STORE_NAME and CERT_FILE_NAME in the arguments)
+# ======================================================================
+ADD dist/ /tmp/dist/
+ADD cert/ /tmp/cert/
+
+We push directly the container with the keys into the Crypto-Pro directory
+# =======================================================================
+ADD cert/$HDIMAGE_STORE_NAME /var/opt/cprocsp/keys/root/
+
+# Unpacking Crypto-Pro predownloading archives in the container directory
+# =======================================================================
+RUN tar -xzf /tmp/dist/linux-amd64_deb.tgz -C /tmp/dist/
+RUN tar -xzf /tmp//dist/cades-linux-amd64.tar.gz -C /tmp/dist/
+
+# Installing Crypto-Pro CSP 4.0
+# =======================================================================
+RUN /tmp/dist/linux-amd64_deb/install.sh
+
+# Installing rsa from Crypto-Pro to write pfx certificate format
+# ======================================================================
+RUN dpkg -i /tmp/dist/linux-amd64_deb/cprocsp-rsa-*.deb
+
+# Installing a license
+# =======================================================================
+RUN /opt/cprocsp/sbin/amd64/cpconfig -license -set $CSP_LICENSE_KEY
+
+# Checking a license
+# =======================================================================
+RUN /opt/cprocsp/sbin/amd64/cpconfig -license -view
+
+# Installition
+# =======================================================================
+RUN apt-get update && apt-get -y install sudo
+
+# ======= for a specific USER_NAME specified in the arguments (trying to add a selenium user to sudo) ===========
+#RUN useradd -m user && adduser user sudo
+RUN usermod -aG sudo selenium
+
+# Installing a chain of certificates in stores
+# =======================================================================
+RUN /opt/cprocsp/bin/amd64/certmgr -inst -store mroot -file /tmp/cert/$CERT_ROOT_NAME
+RUN /opt/cprocsp/bin/amd64/certmgr -inst -store uMy -file /tmp/cert/$CERT_USER_NAME
+RUN /opt/cprocsp/bin/amd64/certmgr -inst -store uCa -file /tmp/cert/$CERT_USER_NAME
+RUN /opt/cprocsp/bin/amd64/certmgr -inst -store uCa -file /tmp/cert/$CERT_ROOT_NAME
+
+# Install the certificate and private key in the root store
+# Writing via pfx - a working option is to put the entire chain in storage
+# ========================================================================
+RUN /opt/cprocsp/bin/amd64/certmgr -install -pfx -file /tmp/cert/$CERT_FILE_NAME -pin $CERT_FILE_NAME_PASSWORD -silent
+
+USER root
+# Installing CryptoPro CSP Browser plug-in contains the necessary libraries for compilation and extension sources
+# ========================================================================
+RUN apt update && apt-get install alien -y
+RUN apt-get install -y libgtk2.0-dev
+RUN apt-get install -y libpcsclite-dev
+RUN dpkg -i /tmp/dist/linux-amd64_deb/cprocsp-rdr-gui-gtk-*.deb
+RUN dpkg -i /tmp/dist/linux-amd64_deb/cprocsp-rdr-pcsc*.deb
+RUN alien -kci /tmp/dist/cades-linux-amd64/cprocsp-pki-cades*.rpm
+RUN alien -kci /tmp/dist/cades-linux-amd64/cprocsp-pki-plugin*.rpm
+RUN alien -kci /tmp/dist/cades-linux-amd64/cprocsp-pki-plugin*.rpm
+
+
+# Locales + timezones
+# =======================================================================
+ENV LANG ru_RU.UTF-8
+ENV LANGUAGE ru_RU:ru
+ENV LC_LANG ru_RU.UTF-8
+ENV LC_ALL ru_RU.UTF-8
+ENV TZ Europe/Moscow
+
+# Add an extension to your default browser profile
+# ========================================================================
+ADD /ext/ /.config/google-chrome/Default/Extensions/
+
+# Adding Trusted Hosts
+# ========================================================================
+RUN /opt/cprocsp/sbin/amd64/cpconfig -ini "\local\Software\Crypto Pro\CAdESplugin" -add multistring "TrustedSites" "http://hostname:8080" "http://hostname2:8081"
+
+# Adding Trusted Hosts 4 all users
+# =======================================================================
+RUN /opt/cprocsp/sbin/amd64/cpconfig -ini "\config\cades\trustedsites" -add multistring "TrustedSites" "http://hostname:8080" "http://hostname2:8081"
+
+# View Trusted Hosts
+# =======================================================================
+#RUN /opt/cprocsp/sbin/amd64/cpconfig -ini "\local\Software\Crypto Pro\CAdESplugin" -view
+#RUN /opt/cprocsp/sbin/amd64/cpconfig -ini "\config\cades\trustedsites" -view
+
+USER root
+
+# Debugging for manual checking via Selenoid UI (from docker exec -it *** bin/bash)
+# ========================================================================
+# ADD /ext/ /opt/google/chrome/extensions/
+
+# View Container\Write Certificates
+# ========================================================================
+RUN /opt/cprocsp/bin/amd64/certmgr --list
+RUN /opt/cprocsp/bin/amd64/csptestf --absorb --cert
+RUN /opt/cprocsp/bin/amd64/csptest --keyset --enum_cont --verifyc --fqcn --machinekeys
+
+# Restarting Crypto Pro Services
+# ========================================================================
+RUN sudo service cprocsp restart
+#RUN service pcscd restart

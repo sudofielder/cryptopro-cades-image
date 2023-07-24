@@ -1,5 +1,5 @@
 # cryptopro-cades-image
-docker file 4 work with cryptopro extension (cades browser plug-in) *browser chrome*
+Dockerfile with cryptopro extension (cades browser plug-in) *browser chrome*
 
 use build.sh from building directory
 #!/bin/bash

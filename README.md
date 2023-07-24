@@ -1,4 +1,9 @@
 # cryptopro-cades-image
+Контейнер включающий в себя:
+- Браузер Chrome;
+- CryptoPro CSP 4 полностью запускаемый как криптопровайдер для работы с персональным ключем;
+- CryptoPro Extension for CAdES Browser Plug-in
+
 Dockerfile with cryptopro extension (cades browser plug-in) *browser chrome*
 
 use build.sh from building directory
